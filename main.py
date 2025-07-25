@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify
 from pyrogram import Client, filters
 from dotenv import load_dotenv
 
-# Cargar variables del entorno
+# Cargar variables de entorno
 load_dotenv()
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
@@ -16,18 +16,18 @@ loop = asyncio.get_event_loop()
 
 # Cliente de Pyrogram
 app_tg = Client(
-    name="mi_sesion",
+    "mi_sesion",
     session_string=SESSION_STRING,
     api_id=API_ID,
     api_hash=API_HASH
 )
 
-# Flask App
+# Crear app Flask
 app = Flask(__name__)
 
 @app.route("/")
 def index():
-    return "✅ Flask + Telegram funcionando"
+    return "✅ Flask + Pyrogram funcionando."
 
 @app.route("/consulta")
 def consulta():
@@ -39,14 +39,14 @@ def consulta():
 
     mensaje = f"/{comando} {valor}"
 
-    async def enviar_mensaje():
+    async def enviar():
         try:
             await app_tg.send_message("lederdata_publico_bot", mensaje)
             respuestas[valor.lower()] = "⌛ Esperando respuesta del bot..."
         except Exception as e:
             respuestas[valor.lower()] = f"❌ Error: {str(e)}"
 
-    loop.create_task(enviar_mensaje())
+    loop.create_task(enviar())
 
     return jsonify({
         "status": "✅ Consulta enviada correctamente",
@@ -63,23 +63,27 @@ def respuesta():
         "respuesta": respuestas.get(valor.lower(), "❌ Sin respuesta aún.")
     })
 
-# Escuchar respuestas del bot
+# Capturar respuesta del bot
 @app_tg.on_message(filters.chat("lederdata_publico_bot"))
 async def recibir(client, message):
     if message.text:
+        print("📨 Respuesta del bot:", message.text)
         texto = message.text.lower()
-        print("📩 Mensaje recibido:", texto)
         for clave in respuestas:
             if clave in texto:
                 respuestas[clave] = message.text
                 return
         respuestas["ultima"] = message.text
 
-# Ejecutar Flask y Pyrogram
+# Ejecutar app
 if __name__ == "__main__":
     async def iniciar():
         await app_tg.start()
-        print("✅ Bot Telegram iniciado")
+        print("✅ Bot Telegram iniciado correctamente")
+
+        # ✅ Verificación: enviar mensaje a tu propio chat
+        await app_tg.send_message("me", "✅ Sesión iniciada correctamente desde Railway")
+
         app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
     loop.run_until_complete(iniciar())
