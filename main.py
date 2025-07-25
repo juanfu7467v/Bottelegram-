@@ -11,7 +11,7 @@ API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 SESSION_STRING = os.getenv("SESSION_STRING")
 
-# Iniciar cliente de Pyrogram (sin loop)
+# Iniciar cliente de Pyrogram
 app_tg = Client(
     "mi_sesion",
     api_id=API_ID,
@@ -23,7 +23,7 @@ app_tg = Client(
 # Iniciar app Flask
 app = Flask(__name__)
 
-# Almacenamiento de respuestas (memoria temporal)
+# Almacenamiento temporal de respuestas
 respuestas = {}
 
 @app.route("/")
@@ -41,19 +41,17 @@ def consulta():
     mensaje = f"/{comando} {valor}"
 
     async def enviar():
-        await app_tg.send_message("LederDataBot", mensaje)
+        await app_tg.send_message("lederdata_publico_bot", mensaje)
 
-    # Ejecutar la tarea sin bloquear Flask
     asyncio.ensure_future(enviar())
 
-    # Guardar estado inicial
-    respuestas[valor] = "⌛ Esperando respuesta del bot..."
+    # Usamos la clave original como referencia
+    respuestas[valor.lower()] = "⌛ Esperando respuesta de @lederdata_publico_bot..."
 
     return jsonify({
-        "status": "✅ Consulta enviada",
-        "mensaje_enviado": mensaje
+        "status": "✅ Consulta enviada correctamente",
+        "comando_enviado": mensaje
     })
-
 
 @app.route("/respuesta")
 def respuesta():
@@ -61,28 +59,42 @@ def respuesta():
     if not valor:
         return jsonify({"error": "Falta el parámetro 'valor'"}), 400
 
-    respuesta = respuestas.get(valor, "❌ Sin resultados aún.")
+    respuesta = respuestas.get(valor.lower(), "❌ Sin respuesta aún.")
     return jsonify({"respuesta": respuesta})
 
 
-# Escuchar respuestas de @LederDataBot
-@app_tg.on_message(filters.chat("LederDataBot"))
+# Captura de respuestas del bot
+@app_tg.on_message(filters.chat("lederdata_publico_bot"))
 async def recibir_respuesta(client, message):
-    texto = message.text or "[Respuesta no textual]"
-    print("📩 Respuesta del bot:", texto)
+    # Si es texto
+    if message.text:
+        texto = message.text
+        print("📩 Texto recibido:", texto)
 
-    # Buscar coincidencia con claves guardadas
-    for clave in respuestas:
-        if clave in texto:
-            respuestas[clave] = texto
-            return
+        for clave in respuestas:
+            if clave in texto.lower():
+                respuestas[clave] = texto
+                return
 
-    # Si no se encuentra coincidencia, guardar como última genérica
-    respuestas["ultima"] = texto
+        respuestas["ultima"] = texto
 
+    # Si es foto
+    elif message.photo:
+        file_path = await message.download()
+        print("📸 Foto descargada:", file_path)
+        respuestas["ultima"] = f"[📷 Imagen recibida y descargada: {file_path}]"
+
+    # Si es documento (PDF u otros)
+    elif message.document:
+        file_path = await message.download()
+        print("📄 Documento recibido:", file_path)
+        respuestas["ultima"] = f"[📄 Documento recibido y descargado: {file_path}]"
+
+    else:
+        respuestas["ultima"] = "[❓ Respuesta en formato no reconocido]"
 
 # Iniciar la app
 if __name__ == "__main__":
-    print("🚀 Iniciando Telegram y Flask...")
+    print("🚀 Iniciando Telegram + Flask...")
     app_tg.start()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
