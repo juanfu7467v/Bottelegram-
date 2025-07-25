@@ -23,7 +23,7 @@ app_tg = Client(
 # Iniciar app Flask
 app = Flask(__name__)
 
-# Almacenamiento temporal de respuestas
+# Almacenamiento de respuestas
 respuestas = {}
 
 @app.route("/")
@@ -43,15 +43,18 @@ def consulta():
     async def enviar():
         await app_tg.send_message("lederdata_publico_bot", mensaje)
 
-    asyncio.ensure_future(enviar())
+    try:
+        # Ejecutar la corrutina en el loop del cliente de Pyrogram
+        asyncio.run_coroutine_threadsafe(enviar(), app_tg.loop)
+        respuestas[valor.lower()] = "⌛ Esperando respuesta de @lederdata_publico_bot..."
 
-    # Usamos la clave original como referencia
-    respuestas[valor.lower()] = "⌛ Esperando respuesta de @lederdata_publico_bot..."
+        return jsonify({
+            "status": "✅ Consulta enviada correctamente",
+            "comando_enviado": mensaje
+        })
 
-    return jsonify({
-        "status": "✅ Consulta enviada correctamente",
-        "comando_enviado": mensaje
-    })
+    except Exception as e:
+        return jsonify({"error": f"❌ Error al enviar mensaje: {str(e)}"}), 500
 
 @app.route("/respuesta")
 def respuesta():
@@ -59,14 +62,13 @@ def respuesta():
     if not valor:
         return jsonify({"error": "Falta el parámetro 'valor'"}), 400
 
-    respuesta = respuestas.get(valor.lower(), "❌ Sin respuesta aún.")
-    return jsonify({"respuesta": respuesta})
+    return jsonify({
+        "respuesta": respuestas.get(valor.lower(), "❌ Sin respuesta aún.")
+    })
 
-
-# Captura de respuestas del bot
+# Captura de mensajes del bot
 @app_tg.on_message(filters.chat("lederdata_publico_bot"))
 async def recibir_respuesta(client, message):
-    # Si es texto
     if message.text:
         texto = message.text
         print("📩 Texto recibido:", texto)
@@ -78,22 +80,20 @@ async def recibir_respuesta(client, message):
 
         respuestas["ultima"] = texto
 
-    # Si es foto
     elif message.photo:
         file_path = await message.download()
         print("📸 Foto descargada:", file_path)
-        respuestas["ultima"] = f"[📷 Imagen recibida y descargada: {file_path}]"
+        respuestas["ultima"] = f"[📷 Imagen descargada: {file_path}]"
 
-    # Si es documento (PDF u otros)
     elif message.document:
         file_path = await message.download()
-        print("📄 Documento recibido:", file_path)
-        respuestas["ultima"] = f"[📄 Documento recibido y descargado: {file_path}]"
+        print("📄 Documento descargado:", file_path)
+        respuestas["ultima"] = f"[📄 Documento descargado: {file_path}]"
 
     else:
         respuestas["ultima"] = "[❓ Respuesta en formato no reconocido]"
 
-# Iniciar la app
+# Lanzar Flask y Pyrogram juntos
 if __name__ == "__main__":
     print("🚀 Iniciando Telegram + Flask...")
     app_tg.start()
