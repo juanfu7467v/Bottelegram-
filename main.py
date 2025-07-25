@@ -3,30 +3,31 @@ import asyncio
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
 from dotenv import load_dotenv
-from threading import Thread
 
-# Cargar .env
+# Cargar variables del entorno
 load_dotenv()
-
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 SESSION_STRING = os.getenv("SESSION_STRING")
 
+# Variables compartidas
+respuestas = {}
+loop = asyncio.get_event_loop()
+
 # Cliente de Pyrogram
 app_tg = Client(
     name="mi_sesion",
+    session_string=SESSION_STRING,
     api_id=API_ID,
-    api_hash=API_HASH,
-    session_string=SESSION_STRING
+    api_hash=API_HASH
 )
 
-# Flask
+# Flask App
 app = Flask(__name__)
-respuestas = {}
 
 @app.route("/")
-def home():
-    return "✅ API Flask + Pyrogram funcionando correctamente"
+def index():
+    return "✅ Flask + Telegram funcionando"
 
 @app.route("/consulta")
 def consulta():
@@ -41,20 +42,19 @@ def consulta():
     async def enviar_mensaje():
         try:
             await app_tg.send_message("lederdata_publico_bot", mensaje)
-            respuestas[valor.lower()] = "⌛ Esperando respuesta..."
+            respuestas[valor.lower()] = "⌛ Esperando respuesta del bot..."
         except Exception as e:
-            print("❌ Error enviando mensaje:", e)
+            respuestas[valor.lower()] = f"❌ Error: {str(e)}"
 
-    # Ejecutar en el loop de Pyrogram
-    asyncio.run_coroutine_threadsafe(enviar_mensaje(), app_tg.loop)
+    loop.create_task(enviar_mensaje())
 
     return jsonify({
-        "comando_enviado": mensaje,
-        "status": "✅ Consulta enviada correctamente"
+        "status": "✅ Consulta enviada correctamente",
+        "comando_enviado": mensaje
     })
 
 @app.route("/respuesta")
-def obtener_respuesta():
+def respuesta():
     valor = request.args.get("valor")
     if not valor:
         return jsonify({"error": "Falta el parámetro 'valor'"}), 400
@@ -63,24 +63,23 @@ def obtener_respuesta():
         "respuesta": respuestas.get(valor.lower(), "❌ Sin respuesta aún.")
     })
 
-# Escucha de respuestas del bot
+# Escuchar respuestas del bot
 @app_tg.on_message(filters.chat("lederdata_publico_bot"))
-async def recibir_respuesta(client, message):
-    texto = message.text or ""
-    print("📨 Mensaje recibido:", texto)
+async def recibir(client, message):
+    if message.text:
+        texto = message.text.lower()
+        print("📩 Mensaje recibido:", texto)
+        for clave in respuestas:
+            if clave in texto:
+                respuestas[clave] = message.text
+                return
+        respuestas["ultima"] = message.text
 
-    # Verifica coincidencias
-    for clave in respuestas:
-        if clave in texto.lower():
-            respuestas[clave] = texto
-            return
-    respuestas["ultima"] = texto
-
-# Ejecutar Pyrogram y Flask en paralelo
-def iniciar_flask():
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
-
+# Ejecutar Flask y Pyrogram
 if __name__ == "__main__":
-    print("🚀 Iniciando bot y servidor web...")
-    app_tg.start()
-    Thread(target=iniciar_flask).start()
+    async def iniciar():
+        await app_tg.start()
+        print("✅ Bot Telegram iniciado")
+        app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+
+    loop.run_until_complete(iniciar())
