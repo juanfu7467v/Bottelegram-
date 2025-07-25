@@ -3,32 +3,30 @@ import asyncio
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
 from dotenv import load_dotenv
+from threading import Thread
 
-# Cargar variables desde .env
+# Cargar .env
 load_dotenv()
 
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 SESSION_STRING = os.getenv("SESSION_STRING")
 
-# Iniciar cliente de Pyrogram
+# Cliente de Pyrogram
 app_tg = Client(
-    "mi_sesion",
+    name="mi_sesion",
     api_id=API_ID,
     api_hash=API_HASH,
-    session_string=SESSION_STRING,
-    workdir="./"
+    session_string=SESSION_STRING
 )
 
-# Iniciar app Flask
+# Flask
 app = Flask(__name__)
-
-# Almacenamiento de respuestas
 respuestas = {}
 
 @app.route("/")
 def home():
-    return "✅ API Pyrogram + Flask funcionando"
+    return "✅ API Flask + Pyrogram funcionando correctamente"
 
 @app.route("/consulta")
 def consulta():
@@ -36,28 +34,27 @@ def consulta():
     valor = request.args.get("valor")
 
     if not comando or not valor:
-        return jsonify({"error": "Faltan parámetros: comando y valor"}), 400
+        return jsonify({"error": "Faltan parámetros"}), 400
 
     mensaje = f"/{comando} {valor}"
 
-    async def enviar():
-        await app_tg.send_message("lederdata_publico_bot", mensaje)
+    async def enviar_mensaje():
+        try:
+            await app_tg.send_message("lederdata_publico_bot", mensaje)
+            respuestas[valor.lower()] = "⌛ Esperando respuesta..."
+        except Exception as e:
+            print("❌ Error enviando mensaje:", e)
 
-    try:
-        # Ejecutar la corrutina en el loop del cliente de Pyrogram
-        asyncio.run_coroutine_threadsafe(enviar(), app_tg.loop)
-        respuestas[valor.lower()] = "⌛ Esperando respuesta de @lederdata_publico_bot..."
+    # Ejecutar en el loop de Pyrogram
+    asyncio.run_coroutine_threadsafe(enviar_mensaje(), app_tg.loop)
 
-        return jsonify({
-            "status": "✅ Consulta enviada correctamente",
-            "comando_enviado": mensaje
-        })
-
-    except Exception as e:
-        return jsonify({"error": f"❌ Error al enviar mensaje: {str(e)}"}), 500
+    return jsonify({
+        "comando_enviado": mensaje,
+        "status": "✅ Consulta enviada correctamente"
+    })
 
 @app.route("/respuesta")
-def respuesta():
+def obtener_respuesta():
     valor = request.args.get("valor")
     if not valor:
         return jsonify({"error": "Falta el parámetro 'valor'"}), 400
@@ -66,35 +63,24 @@ def respuesta():
         "respuesta": respuestas.get(valor.lower(), "❌ Sin respuesta aún.")
     })
 
-# Captura de mensajes del bot
+# Escucha de respuestas del bot
 @app_tg.on_message(filters.chat("lederdata_publico_bot"))
 async def recibir_respuesta(client, message):
-    if message.text:
-        texto = message.text
-        print("📩 Texto recibido:", texto)
+    texto = message.text or ""
+    print("📨 Mensaje recibido:", texto)
 
-        for clave in respuestas:
-            if clave in texto.lower():
-                respuestas[clave] = texto
-                return
+    # Verifica coincidencias
+    for clave in respuestas:
+        if clave in texto.lower():
+            respuestas[clave] = texto
+            return
+    respuestas["ultima"] = texto
 
-        respuestas["ultima"] = texto
-
-    elif message.photo:
-        file_path = await message.download()
-        print("📸 Foto descargada:", file_path)
-        respuestas["ultima"] = f"[📷 Imagen descargada: {file_path}]"
-
-    elif message.document:
-        file_path = await message.download()
-        print("📄 Documento descargado:", file_path)
-        respuestas["ultima"] = f"[📄 Documento descargado: {file_path}]"
-
-    else:
-        respuestas["ultima"] = "[❓ Respuesta en formato no reconocido]"
-
-# Lanzar Flask y Pyrogram juntos
-if __name__ == "__main__":
-    print("🚀 Iniciando Telegram + Flask...")
-    app_tg.start()
+# Ejecutar Pyrogram y Flask en paralelo
+def iniciar_flask():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+
+if __name__ == "__main__":
+    print("🚀 Iniciando bot y servidor web...")
+    app_tg.start()
+    Thread(target=iniciar_flask).start()
